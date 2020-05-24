@@ -1,5 +1,7 @@
 # TODO/Ideas
 
+- tests
+
 - include exclude submodule arguments
 
 - switch to enable archive only for init'ed submodules
