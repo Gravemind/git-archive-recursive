@@ -1,7 +1,7 @@
 
 # Git Recursive Archive
 
-**Work In Progress!**
+**Work In Progress!** "works for me" but no extensively tested, yet.
 
 Git archive with submodules, recursively, at any revision.
 
