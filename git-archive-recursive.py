@@ -107,7 +107,17 @@ class STDOUT:
 
 DEBUG = False
 
-def run(*cmd, ret=None, check=True):
+def run(*cmd, ret=None):
+    """Run a command.
+
+    ret can be one of, or a tuple of, `None`, `RETCODE`, `STDERR`, `STDOUT`. And
+    the function will return the corresponding value, or the tuple of
+    corresponding values.
+
+    If RETCODE is not in ret, then a fatal error is raised if cmd exits with a
+    non-zero status.
+
+    """
     cmd = [ str(c) for c in cmd ]
     if DEBUG:
         print(f'debug: running: {" ".join(cmd)}', file=sys.stderr)
@@ -119,7 +129,7 @@ def run(*cmd, ret=None, check=True):
         stderr=subprocess.PIPE if STDERR in ret else None,
         encoding='utf-8',
     )
-    if RETCODE not in ret and check and proc.returncode != 0:
+    if RETCODE not in ret and proc.returncode != 0:
         fatal("command failed with exit {}: {!r}".format(proc.returncode, cmd))
     def get_return_value(r):
         if r is None:
@@ -133,7 +143,12 @@ def run(*cmd, ret=None, check=True):
         raise ValueError("run() got an invalid 'ret' kw parameter value: {!r}".format(r))
     return tuple([get_return_value(r) for r in ret])[ slice(None) if ret_iterable else 0 ]
 
-def git(*args, **kwargs):
+def git(*subcommand, **kwargs):
+    """Run a git sub command.
+
+    kwargs pwd, gitdir, will be translated to git -C, git --git-dir.
+
+    """
     cmd = ["git"]
     pwd = kwargs.pop("pwd", None)
     if pwd:
@@ -142,16 +157,18 @@ def git(*args, **kwargs):
     if gitdir:
         assert not pwd, "gitdir and pwd conflicts !?"
         cmd.extend(["--git-dir", gitdir])
-    cmd.extend(args)
+    cmd.extend(subcommand)
     return run(*cmd, **kwargs)
 
 def is_valid_git_object(obj, typ, gitdir=None):
+    """Return True if the obj of type typ is valid in gitdir"""
     retcode, stdout = git("rev-parse", "-q", "--verify", obj+"^{"+typ+"}",
                           gitdir=gitdir, ret=(RETCODE, STDOUT))
     assert retcode != 0 or stdout.strip() == obj, f"unexpected rev-parse {stdout!r} vs {obj!r}"
     return retcode == 0
 
 def git_config(file=None, blob=None, gitdir=None):
+    """Parse a git config file (or blob), and return it as a flat dict"""
     args = []
     if file:
         args.extend(["--file", file])
@@ -174,6 +191,10 @@ def git_config(file=None, blob=None, gitdir=None):
     return dic
 
 def extract_submodule_config(configs, path):
+    """Extract a submodule config given its path, from a git_config configs dict.
+
+    Looks for a matching submodule path, not submodule name.
+    """
     name = None
     for key, value in configs.items():
         if not key.startswith("submodule."):
@@ -195,15 +216,19 @@ def extract_submodule_config(configs, path):
     return config
 
 class GitDirCollection:
+    """Collection of git-dirs where a rev/commit can be looked up into"""
+
     def __init__(self):
         self.gitdirs = dict()
 
     def add(self, path_hint, gitdir):
+        """Add a git-dir to lookup into. path_hint is a hint for find later."""
         dirs = self.gitdirs.setdefault(str(path_hint), [])
         if gitdir not in dirs:
             dirs.append(Path(gitdir))
 
     def find(self, path_hint, rev):
+        """Lookup for a git-dir containing rev, start with path_hint"""
         # try looking in the hinted path first
         gitdirs = self.gitdirs.get(str(path_hint), None)
         if gitdirs:
@@ -219,6 +244,11 @@ class GitDirCollection:
         return None
 
 def iter_git_submodules_at_rev(gitdir, rev):
+    """Iterate over the submodules existing at rev.
+
+    Yields tuples: (submodule-rel-path, submodule-rev)
+
+    """
     # TODO: it would be less expensive if we could only output 'commit' objects in tree
     stdout = git("ls-tree", "-r", "--full-tree", rev,
                  gitdir=gitdir, ret=STDOUT)
@@ -275,6 +305,8 @@ def iter_current_submodules_gitdirs(pwd=None):
         yield (abspath, gitdir)
 
 class ParallelJobs:
+    """Handles asynchronously running commands"""
+
     def __init__(self, nproc):
         self.pending = []
         if nproc <= 0:
@@ -297,9 +329,11 @@ class ParallelJobs:
         self.pending.append(proc)
 
     def can_wait(self):
+        """Return True if there is still commands to wait"""
         return len(self.pending) > 0
 
     def wait_next_in_order(self):
+        """Wait for the next command, in launch order, return its proc."""
         proc = self.pending.pop(0)
         ret = proc.wait()
         return proc
