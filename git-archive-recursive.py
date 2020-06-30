@@ -11,6 +11,7 @@ import time
 import multiprocessing
 
 DEFAULT_NPROC = multiprocessing.cpu_count()
+DEBUG = False
 
 def make_parser():
     parser = argparse.ArgumentParser(
@@ -105,9 +106,7 @@ class STDERR:
 class STDOUT:
     pass
 
-DEBUG = False
-
-def run(*cmd, ret=None):
+def run(*cmd, ret=None, pwd=None):
     """Run a command.
 
     ret can be one of, or a tuple of, `None`, `RETCODE`, `STDERR`, `STDOUT`. And
@@ -128,6 +127,7 @@ def run(*cmd, ret=None):
         stdout=subprocess.PIPE if STDOUT in ret else None,
         stderr=subprocess.PIPE if STDERR in ret else None,
         encoding='utf-8',
+        cwd=pwd,
     )
     if RETCODE not in ret and proc.returncode != 0:
         fatal("command failed with exit {}: {!r}".format(proc.returncode, cmd))
@@ -150,12 +150,9 @@ def git(*subcommand, **kwargs):
 
     """
     cmd = ["git"]
-    pwd = kwargs.pop("pwd", None)
-    if pwd:
-        cmd.extend(["-C", str(pwd)])
     gitdir = kwargs.pop("gitdir", None)
     if gitdir:
-        assert not pwd, "gitdir and pwd conflicts !?"
+        assert 'pwd' not in kwargs, "gitdir and pwd conflicts !?"
         cmd.extend(["--git-dir", gitdir])
     cmd.extend(subcommand)
     return run(*cmd, **kwargs)
@@ -291,7 +288,7 @@ def recursively_iter_repos(top, top_gitdir, top_rev, gitdirs, depth_count_down=-
 
 def iter_current_submodules_gitdirs(pwd=None):
     stdout = git("submodule", "foreach", "-q", "--recursive",
-                 "echo $name $sm_path $toplevel $(git rev-parse --absolute-git-dir)", # FIXME spaces in paths ?
+                 "echo $name $sm_path $toplevel $(cd \"$(git rev-parse --git-dir)\" && pwd)", # FIXME spaces in paths ?
                  pwd=pwd,
                  ret=STDOUT)
     for line in stdout.splitlines():
@@ -365,7 +362,7 @@ def main(args):
     gitdirs = GitDirCollection()
 
     top = git("rev-parse", "--show-toplevel", ret=STDOUT).strip()
-    top_gitdir = git("rev-parse", "--absolute-git-dir", ret=STDOUT).strip()
+    top_gitdir = str(Path(git("rev-parse", "--git-dir", ret=STDOUT).strip()).resolve())
     gitdirs.add(top, top_gitdir)
 
     for abspath, gitdir in iter_current_submodules_gitdirs(pwd=top):
