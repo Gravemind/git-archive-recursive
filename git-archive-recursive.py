@@ -2,6 +2,7 @@
 
 import os
 import sys
+import os.path
 from pathlib import Path
 import subprocess
 import argparse
@@ -362,7 +363,7 @@ def main(args):
     gitdirs = GitDirCollection()
 
     top = git("rev-parse", "--show-toplevel", ret=STDOUT).strip()
-    top_gitdir = str(Path(git("rev-parse", "--git-dir", ret=STDOUT).strip()).resolve())
+    top_gitdir = os.path.abspath(git("rev-parse", "--git-dir", ret=STDOUT).strip())
     gitdirs.add(top, top_gitdir)
 
     for abspath, gitdir in iter_current_submodules_gitdirs(pwd=top):
